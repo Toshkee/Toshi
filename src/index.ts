@@ -77,9 +77,9 @@ async function generateContentWithRetry(ai: GoogleGenAI, params: any) {
     } catch (e: any) {
       const info = `${e?.status ?? e?.code ?? ""} ${e?.message ?? e}`;
       const transient = /\b(429|500|502|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(info);
-      if (!transient || attempt >= 4) throw e;
-      const delayMs = 3000 * 2 ** (attempt - 1); // 3s, 6s, 12s
-      console.warn(`Gemini transient error (attempt ${attempt}/4); retrying in ${delayMs / 1000}s…`);
+      if (!transient || attempt >= 6) throw e;
+      const delayMs = Math.min(60000, 4000 * 2 ** (attempt - 1)); // 4s, 8s, 16s, 32s, 60s (~2 min total)
+      console.warn(`Gemini transient error (attempt ${attempt}/6); retrying in ${delayMs / 1000}s…`);
       await sleep(delayMs);
     }
   }
