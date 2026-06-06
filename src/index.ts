@@ -17,7 +17,7 @@ const SECTIONS = [
   { emoji: "📈", name: "Stocks & Markets", guidance: "Major indices, big single-name moves, macro/Fed data, notable earnings." },
   { emoji: "🌍", name: "World", guidance: "The most significant global news stories." },
   { emoji: "🥊", name: "UFC / MMA", guidance: "Recent fight results, upcoming cards, and big news (title changes, signings, injuries)." },
-  { emoji: "🤖", name: "Tech & AI", guidance: "Major launches, product news, and big moves from the major players." },
+  { emoji: "🤖", name: "AI (Anthropic first)", guidance: "PRIORITY SECTION — give it the most depth and a few extra bullets. LEAD with Anthropic / Claude (model & product releases, research, safety & policy, funding, hiring, leadership), then other major labs (OpenAI, Google DeepMind, Meta, xAI, Mistral) and notable AI product/tooling news. Never skip this section; if there's genuinely no Anthropic news, say so in one line and cover the broader AI landscape." },
   { emoji: "⭐", name: "Wildcard", guidance: "One genuinely interesting story that doesn't fit above (optional)." },
 ] as const;
 
@@ -41,12 +41,13 @@ function buildSystemPrompt(todayLabel: string): string {
     ``,
     `FORMAT RULES:`,
     `- Open with one header line exactly: "${BRIEF_NAME} — ${todayLabel}".`,
-    `- Use the emoji section headers exactly as listed above.`,
-    `- Under each section, bullets that start with "• ". One or two punchy sentences each. No fluff, no hedging.`,
-    `- Lead with what matters most to someone tracking crypto and markets.`,
+    `- Then one line starting "Big picture: " — 1-2 sentences summarising the day's most important threads.`,
+    `- Then the sections, using the emoji section headers exactly as listed above.`,
+    `- Under each section, bullets that start with "• ". One or two punchy, well-summarised sentences each. No fluff, no hedging.`,
+    `- Lead with what matters most to someone tracking crypto and markets; the AI (Anthropic) section is a priority and should be thorough.`,
     `- PLAIN TEXT ONLY. No markdown: no **bold**, no ## headers, no [text](url) links — they render as literal characters in Telegram.`,
-    `- Name sources in plain text, e.g. "(Reuters)".`,
-    `- Keep the whole brief under ~500 words. Prioritise ruthlessly.`,
+    `- Name the source of each item in plain text, e.g. "(Reuters)". Do NOT paste raw URLs — a linked "Sources" list is appended automatically.`,
+    `- Keep the main brief tight (~500-650 words). Prioritise ruthlessly.`,
     `- Output ONLY the brief itself — no preamble, no sign-off, no meta commentary.`,
   ].join("\n");
 }
@@ -64,7 +65,9 @@ function toPlainText(s: string): string {
 // ──────────────────────────────────────────────────────────────────────────
 // Generate the brief (Gemini + Google Search grounding)
 // ──────────────────────────────────────────────────────────────────────────
-async function generateBrief(todayLabel: string): Promise<string> {
+type BriefResult = { text: string; sources: { title: string; uri: string }[] };
+
+async function generateBrief(todayLabel: string): Promise<BriefResult> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const response = await ai.models.generateContent({
@@ -85,7 +88,21 @@ async function generateBrief(todayLabel: string): Promise<string> {
     console.warn("Hit maxOutputTokens — brief may be truncated; consider raising MAX_TOKENS.");
   }
 
-  return (response.text ?? "").trim();
+  // Real source links Gemini grounded on (each chunk: { web: { uri, title } }).
+  // Dedupe by publisher domain and keep the first few.
+  const chunks: any[] = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks ?? [];
+  const seen = new Set<string>();
+  const sources: { title: string; uri: string }[] = [];
+  for (const c of chunks) {
+    const uri: string | undefined = c?.web?.uri;
+    const title: string = c?.web?.title ?? "source";
+    if (!uri || seen.has(title)) continue;
+    seen.add(title);
+    sources.push({ title, uri });
+    if (sources.length >= 8) break;
+  }
+
+  return { text: (response.text ?? "").trim(), sources };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -155,8 +172,13 @@ async function run(): Promise<void> {
     day: "numeric",
   }).format(new Date());
 
-  const brief = toPlainText(await generateBrief(todayLabel)).trim();
-  const text = brief || `🗞️ ${BRIEF_NAME} — ${todayLabel}\n\nQuiet news day — nothing notable in the last 24h.`;
+  const { text: rawBrief, sources } = await generateBrief(todayLabel);
+  let text =
+    toPlainText(rawBrief).trim() ||
+    `🗞️ ${BRIEF_NAME} — ${todayLabel}\n\nQuiet news day — nothing notable in the last 24h.`;
+  if (sources.length) {
+    text += "\n\n🔗 Sources (from this morning's search)\n" + sources.map((s) => `• ${s.title} — ${s.uri}`).join("\n");
+  }
 
   if (preview) {
     console.log(`\n----- PREVIEW for ${todayLabel} (not sent to Telegram) -----\n`);
