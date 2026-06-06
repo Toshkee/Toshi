@@ -54,8 +54,9 @@ and the 24-hour window match your clock.
 3. It now runs on the daily cron in `.github/workflows/daily.yml`. Trigger a test
    run any time from the **Actions** tab → *Daily News Brief* → **Run workflow**.
 
-The cron is **21:00 UTC** (06:00 Asia/Tokyo). Change both the `cron:` line and
-`TZ` together if you want a different local delivery time.
+The cron is **08:00 UTC = 10:00 in Montenegro** (CEST). Cron is fixed UTC and
+doesn't follow DST, so in winter switch it to `0 9 * * *` for 10:00 local. Change
+the `cron:` line and `TZ` together if you want a different time/zone.
 
 ## Customising
 

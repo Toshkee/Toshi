@@ -40,8 +40,7 @@ function buildSystemPrompt(todayLabel: string): string {
     sectionLines,
     ``,
     `FORMAT RULES:`,
-    `- Open with one header line exactly: "${BRIEF_NAME} — ${todayLabel}".`,
-    `- Then one line starting "Big picture: " — 1-2 sentences summarising the day's most important threads.`,
+    `- Start directly with one line beginning "Big picture: " — 1-2 sentences summarising the day's most important threads. Do NOT add a title or header line; a header is added automatically.`,
     `- Then the sections, using the emoji section headers exactly as listed above.`,
     `- Under each section, bullets that start with "• ". One or two punchy, well-summarised sentences each. No fluff, no hedging.`,
     `- Lead with what matters most to someone tracking crypto and markets; the AI (Anthropic) section is a priority and should be thorough.`,
@@ -60,6 +59,11 @@ function toPlainText(s: string): string {
     .replace(/(^|\n)\s{0,3}#{1,6}\s+/g, "$1") // leading # headers
     .replace(/\*+/g, "") // ** and * emphasis markers
     .replace(/`+/g, ""); // stray backticks
+}
+
+// Escape for Telegram HTML parse mode (only these three chars are special).
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -145,8 +149,8 @@ function chunk(text: string): string[] {
 
 async function tgSend(text: string): Promise<void> {
   const url = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
-  // No parse_mode = plain text, which sidesteps all Markdown/HTML entity-parse errors.
-  const body = JSON.stringify({ chat_id: CHAT_ID, text, disable_web_page_preview: true });
+  // HTML parse mode (the caller escapes the content) so the greeting can be bold.
+  const body = JSON.stringify({ chat_id: CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true });
   let attempt = 0;
   while (true) {
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body });
@@ -191,22 +195,26 @@ async function run(): Promise<void> {
   }).format(new Date());
 
   const { text: rawBrief, sources } = await generateBrief(todayLabel);
-  let text =
-    toPlainText(rawBrief).trim() ||
-    `🗞️ ${BRIEF_NAME} — ${todayLabel}\n\nQuiet news day — nothing notable in the last 24h.`;
+  const greeting = `☀️ This morning's news for Toshkee — ${todayLabel}`;
+  const briefBody = toPlainText(rawBrief).trim() || "Quiet news day — nothing notable in the last 24h.";
+
+  let plain = `${greeting}\n\n${briefBody}`;
   if (sources.length) {
-    text += "\n\n🔗 Sources (from this morning's search)\n" + sources.map((s) => `• ${s.title} — ${s.uri}`).join("\n");
+    plain += "\n\n🔗 Sources (from this morning's search)\n" + sources.map((s) => `• ${s.title} — ${s.uri}`).join("\n");
   }
 
   if (preview) {
     console.log(`\n----- PREVIEW for ${todayLabel} (not sent to Telegram) -----\n`);
-    console.log(text);
-    console.log(`\n----- ${text.length} chars -----`);
+    console.log(plain);
+    console.log(`\n----- ${plain.length} chars -----`);
     return;
   }
 
-  await sendToTelegram(text);
-  console.log(`Sent ${text.length} chars to Telegram.`);
+  // Send as HTML so the greeting line is bold: escape everything, then wrap the
+  // first line (the greeting) in <b>…</b>.
+  const html = `<b>${escapeHtml(greeting)}</b>` + escapeHtml(plain.slice(greeting.length));
+  await sendToTelegram(html);
+  console.log(`Sent ${html.length} chars to Telegram.`);
 }
 
 run().catch(async (err) => {
