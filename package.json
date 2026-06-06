@@ -1,0 +1,23 @@
+{
+  "name": "toshintel",
+  "version": "1.0.0",
+  "description": "A daily news brief gathered by Claude's web search and delivered to Telegram.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "preview": "tsx src/index.ts --print"
+  },
+  "dependencies": {
+    "@google/genai": "^2.8.0",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,31 @@
+name: Daily News Brief
+
+on:
+  schedule:
+    # 05:00 UTC daily = 07:00 in Montenegro (CEST, summer) / 06:00 (CET, winter).
+    # Cron is UTC; change this hour if you change TZ. Note: GitHub schedules are
+    # best-effort and often run 10-60+ min late.
+    - cron: "0 5 * * *"
+  workflow_dispatch: {} # manual "Run workflow" button for test runs
+
+# Avoid overlapping runs if a manual trigger lands during a scheduled one.
+concurrency:
+  group: daily-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm start
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
