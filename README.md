@@ -1,4 +1,4 @@
-# Toshintel — Daily News Brief
+# Toshi — Daily News Brief
 
 A small personal app that once a day asks Gemini to web-search the last 24 hours
 of news and sends a single concise brief to your Telegram. No news APIs —

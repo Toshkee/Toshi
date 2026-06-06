@@ -1,7 +1,7 @@
 {
-  "name": "toshintel",
+  "name": "toshi",
   "version": "1.0.0",
-  "description": "A daily news brief gathered by Claude's web search and delivered to Telegram.",
+  "description": "A daily news brief gathered by Gemini's Google Search grounding and delivered to Telegram.",
   "private": true,
   "type": "module",
   "engines": {

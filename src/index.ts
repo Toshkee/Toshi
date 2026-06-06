@@ -4,7 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 // ──────────────────────────────────────────────────────────────────────────
 // Config — the main knobs
 // ──────────────────────────────────────────────────────────────────────────
-const BRIEF_NAME = "Toshintel";
+const BRIEF_NAME = "Toshi";
 const MODEL = "gemini-2.5-flash"; // free-tier model with Google Search grounding (3.x / pro need a paid plan)
 const TZ = "Europe/Podgorica"; // Montenegro (CET/CEST)
 const MAX_TOKENS = 8192; // headroom — Gemini's "thinking" shares this output budget
