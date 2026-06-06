@@ -67,10 +67,28 @@ function toPlainText(s: string): string {
 // ──────────────────────────────────────────────────────────────────────────
 type BriefResult = { text: string; sources: { title: string; uri: string }[] };
 
+// Gemini's free tier occasionally returns a transient 503 (high demand), 429, or
+// other 5xx. Retry a few times with exponential backoff so one blip doesn't skip
+// the day's brief.
+async function generateContentWithRetry(ai: GoogleGenAI, params: any) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (e: any) {
+      const info = `${e?.status ?? e?.code ?? ""} ${e?.message ?? e}`;
+      const transient = /\b(429|500|502|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(info);
+      if (!transient || attempt >= 4) throw e;
+      const delayMs = 3000 * 2 ** (attempt - 1); // 3s, 6s, 12s
+      console.warn(`Gemini transient error (attempt ${attempt}/4); retrying in ${delayMs / 1000}s…`);
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function generateBrief(todayLabel: string): Promise<BriefResult> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithRetry(ai, {
     model: MODEL,
     contents: "Write today's brief.",
     config: {
