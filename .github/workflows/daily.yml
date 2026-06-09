@@ -1,30 +1,74 @@
 name: Daily News Brief
 
+# Delivery is driven from TWO triggers, kept duplicate-proof by the guard step below:
+#   • PRIMARY  — an external scheduler (cron-job.org) calls the GitHub API to fire
+#     `workflow_dispatch` at 10:00 Europe/Podgorica. It runs on time (within seconds)
+#     and follows DST automatically. This is what makes the brief actually arrive at
+#     10:00 — GitHub's own cron is too unreliable for that (see FALLBACK).
+#   • FALLBACK — the `schedule:` cron below. GitHub schedules are best-effort and
+#     routinely run *hours* late, so this is only a safety net for days the primary
+#     trigger doesn't fire. The "skip if already sent today" guard makes the two
+#     triggers idempotent, so you never get a duplicate brief.
 on:
   schedule:
-    # 08:00 UTC daily = 10:00 in Montenegro (CEST, summer) / 09:00 (CET, winter).
-    # Cron is fixed UTC and does NOT follow DST, so in winter switch to "0 9 * * *"
-    # for 10:00 local. GitHub schedules are best-effort and often run 10-60+ min late.
-    - cron: "0 8 * * *"
-  workflow_dispatch: {} # manual "Run workflow" button for test runs
+    # 09:15 UTC = 11:15 Montenegro (CEST, summer) / 10:15 (CET, winter). Deliberately
+    # placed AFTER the 10:00-local primary window so the guard can see the primary's
+    # success and skip — and on an odd, off-the-top-of-hour minute, which queues far
+    # less than ":00". As a fallback-only trigger its wall-clock time barely matters:
+    # it delivers only on days the primary failed to run.
+    - cron: "15 9 * * *"
+  workflow_dispatch: {} # primary trigger (cron-job.org) + manual "Run workflow" button
 
-# Avoid overlapping runs if a manual trigger lands during a scheduled one.
+# Never let the primary/manual run overlap a scheduled one — queue instead of overlap.
+# Combined with the guard below, a queued second run sees the first's success and skips.
 concurrency:
   group: daily-brief
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read # the guard step lists this workflow's runs to dedupe
 
 jobs:
   brief:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Skip if today's brief already went out (idempotent dual-trigger guard)
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Only the best-effort `schedule` fallback needs deduping. A `workflow_dispatch`
+          # run — the on-time cron-job.org trigger OR a manual "Run workflow" test — always
+          # proceeds, so you can force a send anytime.
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            today="$(date -u +%F)"
+            # Count earlier SUCCESSFUL runs of this workflow today. The current run is still
+            # in_progress so it is NOT counted. Fail OPEN: on any API error assume none and
+            # send — a rare duplicate beats a silently missed brief.
+            count="$(gh api -X GET "repos/$GH_REPO/actions/workflows/daily.yml/runs" \
+                       -f status=success -f "created=>=$today" --jq '.total_count' 2>/dev/null || echo 0)"
+            echo "Successful '$today' runs so far: ${count:-0}"
+            if [ "${count:-0}" -gt 0 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::A brief already succeeded today — skipping this scheduled fallback."
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
+        if: steps.guard.outputs.skip != 'true'
       - uses: actions/setup-node@v5
+        if: steps.guard.outputs.skip != 'true'
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+        if: steps.guard.outputs.skip != 'true'
       - run: npm start
+        if: steps.guard.outputs.skip != 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

@@ -51,12 +51,43 @@ and the 24-hour window match your clock.
    - `GEMINI_API_KEY`
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_CHAT_ID`
-3. It now runs on the daily cron in `.github/workflows/daily.yml`. Trigger a test
-   run any time from the **Actions** tab → *Daily News Brief* → **Run workflow**.
+3. Trigger a test run any time from the **Actions** tab → *Daily News Brief* →
+   **Run workflow**.
 
-The cron is **08:00 UTC = 10:00 in Montenegro** (CEST). Cron is fixed UTC and
-doesn't follow DST, so in winter switch it to `0 9 * * *` for 10:00 local. Change
-the `cron:` line and `TZ` together if you want a different time/zone.
+### Scheduling — why there are two triggers
+
+GitHub's own `schedule:` cron is **best-effort and routinely runs hours late**
+(it once delivered this brief at noon instead of 10:00). So the workflow uses two
+triggers, made duplicate-proof by an idempotency guard (the first step skips the
+run if a brief already succeeded today):
+
+- **Primary — an external scheduler fires it on time.** A free
+  [cron-job.org](https://cron-job.org) job calls the GitHub API to launch the
+  workflow at **10:00 Europe/Podgorica**, within seconds, following DST
+  automatically (no seasonal edits). One-time setup:
+  1. Create a **fine-grained Personal Access Token** (GitHub → Settings →
+     Developer settings → *Fine-grained tokens*): *Repository access* → only
+     `Toshkee/Toshi`; *Permissions* → **Repository → Actions: Read and write**.
+     Set an expiry and note the renewal date.
+  2. On cron-job.org, create a job:
+     - **URL:** `https://api.github.com/repos/Toshkee/Toshi/actions/workflows/daily.yml/dispatches`
+     - **Method:** `POST`
+     - **Headers:** `Authorization: Bearer <YOUR_TOKEN>`,
+       `Accept: application/vnd.github+json`,
+       `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
+     - **Body:** `{"ref":"main"}`
+     - **Schedule:** every day at `10:00`, timezone **Europe/Podgorica**
+     - A successful dispatch returns **HTTP 204** (empty body). Enable
+       cron-job.org's failure notifications so you hear about a broken trigger.
+  Keep the token only in cron-job.org; rotate it before it expires.
+- **Fallback — the GitHub `schedule:` cron** (`15 9 * * *`). Best-effort and
+  intentionally placed *after* the 10:00 primary window, so on a normal day the
+  guard sees the primary already succeeded and skips it. It only actually delivers
+  on days the primary didn't fire — so the two triggers never double-send.
+
+If you're not in Montenegro, set `const TZ` in `src/index.ts` and the cron-job.org
+job's timezone to your zone (the fallback `cron:` is UTC and DST-agnostic, but as a
+safety net its exact time doesn't need to be precise).
 
 ## Customising
 
@@ -77,12 +108,15 @@ the `cron:` line and `TZ` together if you want a different time/zone.
   isn't silent.
 - **Cost:** the Gemini free tier covers a once-a-day brief; beyond it, Flash is
   very cheap. `gemini-3.1-pro` costs more — swap only if you want the quality.
-- **Schedule drift:** GitHub Actions cron is best-effort and often runs 10–60+ min
-  late; the 24-hour window is computed from the actual run time, so delays don't
-  create gaps.
-- **60-day auto-disable:** GitHub disables scheduled workflows after 60 days with
-  no repo commits. If briefs stop, re-enable from the Actions tab (the failure
-  ping doubles as a heartbeat so you'll notice silence).
+- **On-time delivery:** the external cron-job.org trigger (see *Scheduling* above)
+  fires the workflow on time; the GitHub `schedule:` cron is only a late-running
+  fallback. Either way the 24-hour window is computed from the *actual* run time,
+  so a delayed run never creates gaps.
+- **60-day auto-disable:** GitHub disables *scheduled* workflows after 60 days with
+  no repo commits — but the cron-job.org trigger uses `workflow_dispatch`, which is
+  **not** subject to that rule, so your daily brief keeps coming even if the fallback
+  cron gets disabled. If you ever rely on the fallback again, re-enable it from the
+  Actions tab (the failure ping doubles as a heartbeat so you'll notice silence).
 - **Secrets:** `.env` is git-ignored; only `.env.example` (placeholders) is
   committed. Never log `process.env` or full Telegram request URLs (the bot token
   is in the URL path, and Actions logs are world-readable on public repos).
